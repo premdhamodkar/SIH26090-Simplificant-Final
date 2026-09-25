@@ -72,6 +72,8 @@ export default function SellerCameraUploadModal({
   const [descriptionHi, setDescriptionHi] = useState("")
   const [craftTags, setCraftTags] = useState<string[]>([])
   const [sellingPrice, setSellingPrice] = useState<number>(0)
+  const [stockQuantity, setStockQuantity] = useState<number>(1)
+  const [isPublishing, setIsPublishing] = useState(false)
   const [materialsList, setMaterialsList] = useState<string[]>([])
   const [highlightsList, setHighlightsList] = useState<string[]>([])
   
@@ -203,9 +205,18 @@ export default function SellerCameraUploadModal({
     } catch (err: any) {
       console.warn("AI processing error:", err)
       if (err instanceof NeedsReviewError) {
-        setProcessingError(err.message + " Please describe your product in a little more detail by voice or text.")
+        if (err.transcript && err.transcript.trim()) {
+          const t = err.transcript.trim()
+          setRawDescription(prev => {
+            const p = prev.trim()
+            if (!p) return t
+            if (p.includes(t) || t.includes(p)) return p.length > t.length ? p : t
+            return `${t}\n\n${p}`
+          })
+        }
+        setProcessingError(err.message + " Please describe your product in a little more detail.")
       } else {
-        setProcessingError("AI processing failed. Please describe your product in a little more detail by voice or text.")
+        setProcessingError("AI processing failed. Please describe your product in a little more detail.")
       }
     }
   }
@@ -219,6 +230,17 @@ export default function SellerCameraUploadModal({
     setProductTitleHi(catalog.title_hindi || catalog.seo_title)
     setDescriptionEn(en)
     setDescriptionHi(hi)
+
+    // Merge backend transcript into the typed notes area
+    if (result.transcript && result.transcript.trim()) {
+      const t = result.transcript.trim()
+      setRawDescription(prev => {
+        const p = prev.trim()
+        if (!p) return t
+        if (p.includes(t) || t.includes(p)) return p.length > t.length ? p : t
+        return `${t}\n\n${p}`
+      })
+    }
     
     if (result.verification?.image_detected_category) {
       setProductCategory(mapServiceCategoryToCraft(result.verification.image_detected_category))
@@ -234,12 +256,17 @@ export default function SellerCameraUploadModal({
   // ─── PUBLISH ───
   const handlePublishProduct = async (e?: React.FormEvent) => {
     if (e) e.preventDefault()
+    if (isPublishing) return // prevent double-clicks
     if (!productTitle.trim() || sellingPrice <= 0) {
       showToast("Please enter a valid title and price.")
       return
     }
     if (!enhancedImageUrl) {
       showToast("Enhanced image is missing. Cannot publish.")
+      return
+    }
+    if (stockQuantity < 1) {
+      showToast("Please enter a valid quantity (at least 1).")
       return
     }
 
@@ -250,11 +277,13 @@ export default function SellerCameraUploadModal({
       "Metalwork": "METALWARE",
       "Jewelry": "JEWELLERY",
       "Handicrafts": "OTHER",
-      "Folk & Tribal Art": "OTHER",
+      "Folk & Tribal Art": "PAINTING",
       "Bamboo & Cane": "CANE_BAMBOO",
       "Stone Craft": "STONEWORK",
       "Glass & Paper": "OTHER",
-      "Craft Materials": "OTHER"
+      "Craft Materials": "OTHER",
+      "Painting": "PAINTING",
+      "Leather Craft": "LEATHERWORK",
     }
 
     const safeTags = Array.isArray(craftTags)
@@ -275,9 +304,11 @@ export default function SellerCameraUploadModal({
       category: FRONTEND_TO_BACKEND_CATEGORY[productCategory] || "OTHER",
       cleanImageUrl: enhancedImageUrl,
       tags: safeTags.map(t => t.trim()).filter(Boolean),
-      stockQuantity: 1, // Safe default
+      stockQuantity: Math.max(1, Math.min(9999, Math.floor(stockQuantity))),
       materials: highlightsList.length > 0 ? highlightsList : ["Not specified"]
     }
+
+    setIsPublishing(true)
 
     try {
       console.log("Publishing product", payload)
@@ -295,6 +326,7 @@ export default function SellerCameraUploadModal({
 
       if (!res.ok) {
         const errorBody = await res.json().catch(() => null)
+        console.error("Publish error body:", errorBody)
         throw new Error(errorBody?.error?.message || errorBody?.message || `Publish failed (${res.status})`)
       }
 
@@ -314,6 +346,7 @@ export default function SellerCameraUploadModal({
         CANE_BAMBOO: "Bamboo & Cane",
         STONEWORK: "Stone Craft",
         PAINTING: "Folk & Tribal Art",
+        LEATHERWORK: "Leather Craft",
         OTHER: "Handicrafts",
       }
 
@@ -336,11 +369,13 @@ export default function SellerCameraUploadModal({
       }
 
       onProductPublished(mappedProduct)
-      showToast("Product published successfully")
+      showToast("Product published successfully! 🎉")
       onClose()
     } catch (err: any) {
-      console.error(err)
-      showToast(err.message || "Network error while publishing product.")
+      console.error("Publish error:", err)
+      showToast(err.message || "Unable to publish product. Please try again.")
+    } finally {
+      setIsPublishing(false)
     }
   }
 
@@ -432,12 +467,12 @@ export default function SellerCameraUploadModal({
                   </div>
 
                   <div className="w-full mt-auto">
-                    <p className="text-[10px] font-bold text-[#6B6255] uppercase mb-1">Transcript / Notes</p>
+                    <p className="text-[10px] font-bold text-[#6B6255] uppercase mb-1">Optional: Add or edit details</p>
                     <textarea
                       rows={3}
                       value={rawDescription}
                       onChange={(e) => setRawDescription(e.target.value)}
-                      placeholder="Your voice transcript will appear here. You can also type notes."
+                      placeholder="Your voice transcript will appear here. You can optionally type more details."
                       className="w-full p-3 rounded-xl bg-[#FAF7F2] border border-[#E4DAC8] text-sm outline-none focus:border-[#C9922E] resize-none"
                     />
                   </div>
@@ -591,16 +626,50 @@ export default function SellerCameraUploadModal({
                     </div>
                   </div>
                 </div>
+
+                {/* QUANTITY AVAILABLE */}
+                <div className="bg-[#FAF7F2] p-4 rounded-xl border border-[#E4DAC8]">
+                  <label className="text-xs font-bold text-[#6B6255] uppercase">Quantity Available</label>
+                  <div className="flex items-center gap-3 mt-2">
+                    <button
+                      type="button"
+                      onClick={() => setStockQuantity(q => Math.max(1, q - 1))}
+                      className="w-10 h-10 rounded-lg bg-white border border-[#E4DAC8] text-lg font-bold text-[#241C15] hover:bg-[#FAF7F2] cursor-pointer transition-colors flex items-center justify-center shadow-sm"
+                    >
+                      −
+                    </button>
+                    <input
+                      type="number"
+                      min={1}
+                      max={9999}
+                      value={stockQuantity}
+                      onChange={e => {
+                        const v = parseInt(e.target.value, 10)
+                        if (!isNaN(v) && v >= 1 && v <= 9999) setStockQuantity(v)
+                        else if (e.target.value === "") setStockQuantity(1)
+                      }}
+                      className="w-20 text-center text-xl font-bold text-[#241C15] border border-[#E4DAC8] rounded-lg p-2 outline-none focus:border-[#C9922E] bg-white"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => setStockQuantity(q => Math.min(9999, q + 1))}
+                      className="w-10 h-10 rounded-lg bg-white border border-[#E4DAC8] text-lg font-bold text-[#241C15] hover:bg-[#FAF7F2] cursor-pointer transition-colors flex items-center justify-center shadow-sm"
+                    >
+                      +
+                    </button>
+                    <span className="text-xs text-[#9C9182] ml-2">pieces</span>
+                  </div>
+                </div>
               </div>
             </div>
 
             {/* ACTION BUTTONS */}
             <div className="flex flex-col-reverse sm:flex-row gap-4 pt-4 shrink-0 border-t border-[#E4DAC8] mt-4">
-              <button type="button" onClick={() => setPhase("INPUT")} className="py-4 px-6 rounded-xl bg-white border-2 border-[#E4DAC8] text-[#241C15] font-bold text-lg hover:bg-[#FAF7F2] cursor-pointer transition-colors text-center shadow-sm hover:shadow-md">
+              <button type="button" onClick={() => setPhase("INPUT")} disabled={isPublishing} className="py-4 px-6 rounded-xl bg-white border-2 border-[#E4DAC8] text-[#241C15] font-bold text-lg hover:bg-[#FAF7F2] cursor-pointer transition-colors text-center shadow-sm hover:shadow-md disabled:opacity-40">
                 ← Edit Photo / Voice
               </button>
-              <button type="submit" className="flex-1 py-4 px-6 rounded-xl bg-[#C9922E] text-[#241C15] font-bold text-xl hover:bg-[#DCA33C] cursor-pointer shadow-lg transition-transform hover:-translate-y-0.5 text-center">
-                Publish Product
+              <button type="submit" disabled={isPublishing} className="flex-1 py-4 px-6 rounded-xl bg-[#C9922E] text-[#241C15] font-bold text-xl hover:bg-[#DCA33C] cursor-pointer shadow-lg transition-transform hover:-translate-y-0.5 text-center disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:translate-y-0">
+                {isPublishing ? "Publishing..." : "Publish Product"}
               </button>
             </div>
           </form>
@@ -610,3 +679,4 @@ export default function SellerCameraUploadModal({
     </div>
   )
 }
+

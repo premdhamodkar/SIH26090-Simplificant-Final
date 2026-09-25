@@ -29,12 +29,13 @@ export const AI_PROXY_BASE = "/api/ai"
 // Thrown when the enhancer service's trust gate rejects the pairing of the
 // uploaded image and voice note (they describe different products).
 export class NeedsReviewError extends Error {
-  constructor(message: string) {
+  public transcript?: string
+  constructor(message: string, transcript?: string) {
     super(message)
     this.name = "NeedsReviewError"
+    this.transcript = transcript
   }
 }
-
 // ─── Response contracts (mirror ~/simplificant_image_enhancer/main.py) ──────
 
 export interface EnhanceResult {
@@ -70,6 +71,7 @@ export interface CatalogVerification {
 
 export interface CatalogAudioResult {
   status: string
+  transcript?: string
   catalog: CatalogData
   verification: CatalogVerification
 }
@@ -271,7 +273,7 @@ export async function catalogFromAudio(
         if (body?.status === "needs_review") {
           throw new NeedsReviewError(
             body.reason ||
-              "The photo and voice don't describe the same product — please re-shoot and re-record.",
+              "The photo and voice don't describe the same product - please re-shoot and re-record.", body.transcript
           )
         }
       } catch (err) {

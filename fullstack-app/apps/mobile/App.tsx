@@ -64,7 +64,7 @@ function getWebAppUrl(): string {
     }
   }
   // Fallback — current LAN IP (also used when Expo runs in tunnel mode)
-  return "http://10.48.202.66:5173";
+  return "http://10.215.181.180:5173";
 }
 
 const WEB_APP_URL = getWebAppUrl();

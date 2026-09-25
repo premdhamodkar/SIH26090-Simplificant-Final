@@ -1927,15 +1927,14 @@ Independently analyze each input — never let one input inform the other:
   audio, typed text notes, or both. Treat them collectively as the artisan's description.
 - Extract any price the seller mentions into audio_mentioned_price_inr (a
   plain integer, INR) and any cost/effort context (materials cost, hours of
-  work, labor) into audio_mentioned_cost_context. Extract these as RAW DATA
-  only — do not annotate whether they are fair, low, or high.
+  work, labor) into audio_mentioned_cost_context. Extract these as RAW DATA only - do not annotate whether they are fair, low, or high. THESE DETAILS ARE STRICTLY OPTIONAL. Do not lower confidence just because they are missing.
 - Explicitly COMPARE the image-detected product against the artisan-described
   product. Set consistency_match=false if they are clearly different products
   (e.g. the input describes a saree but the image shows a clay pot). If the
   input is ambiguous, unclear, or too vague to confidently confirm a match
   either way (even when combining audio and notes), set consistency_confidence="low".
   "low" is treated as a mismatch downstream, so only use it if the COMBINED info
-  is truly insufficient.
+  is truly insufficient. A short but accurate description (e.g., "handmade ceramic vase") is sufficient and MUST yield "high" confidence if the image matches, even if price, costs, or long typed notes are missing.
 - consistency_notes: one brief sentence. When consistency_match=false, state
   precisely what the image shows vs what the artisan input describes.
 
@@ -2001,14 +2000,13 @@ Independently analyze each input — never let one input inform the other:
   (Hindi, Marathi, English, or code-mixed) and translate naturally.
 - Extract any price the seller mentions into audio_mentioned_price_inr (a
   plain integer, INR) and any cost/effort context (materials cost, hours of
-  work, labor) into audio_mentioned_cost_context. Extract these as RAW DATA
-  only — do not annotate whether they are fair, low, or high.
+  work, labor) into audio_mentioned_cost_context. Extract these as RAW DATA only - do not annotate whether they are fair, low, or high. THESE DETAILS ARE STRICTLY OPTIONAL. Do not lower confidence just because they are missing.
 - Explicitly COMPARE the image-detected product against the input-described
   product. Set consistency_match=false if they are clearly different products
   (e.g. the input describes a saree but the image shows a clay pot). If
   the input is ambiguous, unclear, or too vague to confidently confirm a
   match either way, set consistency_confidence="low" — "low" is treated as a
-  mismatch downstream, so only use it if the COMBINED info is truly insufficient.
+  mismatch downstream, so only use it if the COMBINED info is truly insufficient. A short but accurate description (e.g., "handmade ceramic vase") is sufficient and MUST yield "high" confidence if the image matches, even if price, costs, or long typed notes are missing.
 - consistency_notes: one brief sentence. When consistency_match=false, state
   precisely what the image shows vs what the input describes.
 
@@ -2170,7 +2168,7 @@ def _build_verification_context(
     return context
 
 
-def _build_needs_review_response(verification: "ProductVerification") -> Optional[JSONResponse]:
+def _build_needs_review_response(verification: "ProductVerification", transcript: str = "") -> Optional[JSONResponse]:
     """
     ORDER J — the HARD GATE, shared by both providers. Never proceed to pricing
     for a pair the system itself flagged as inconsistent, nor when the audio is
@@ -2192,7 +2190,7 @@ def _build_needs_review_response(verification: "ProductVerification") -> Optiona
     return JSONResponse(
         status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
         content={
-            "status": "needs_review",
+            "status": "needs_review", "transcript": transcript,
             "reason": verification.consistency_notes,
             "verification": verification.model_dump(),
         },
@@ -2246,7 +2244,7 @@ def _compute_price_deviation_flag(
     return False
 
 
-def _build_catalog_success_response(
+def _build_catalog_success_response(transcript: str,
     catalog_data: "CatalogData",
     verification: "ProductVerification",
     price_deviation_flag: bool,
@@ -2269,7 +2267,7 @@ def _build_catalog_success_response(
     return JSONResponse(
         status_code=status.HTTP_200_OK,
         content={
-            "status": "success",
+            "status": "success", "transcript": transcript,
             "verification": verification.model_dump(),
             "catalog": catalog_payload,
         },
@@ -2511,6 +2509,7 @@ async def catalog_audio(
 
     local_audio_path: Optional[str] = None
     local_image_path: Optional[str] = None
+    transcript: str = ''
     remote_audio_file = None
     remote_image_file = None
 
@@ -2652,7 +2651,7 @@ async def catalog_audio(
         # treated the same as a mismatch: asking the artisan to redo the upload
         # beats guessing). Short-circuits the entire pricing step before any
         # price exists.
-        gate_response = _build_needs_review_response(verification)
+        gate_response = _build_needs_review_response(verification, transcript)
         if gate_response is not None:
             return gate_response
 
@@ -2716,7 +2715,7 @@ async def catalog_audio(
         # verification block ships on every success intentionally: for a
         # government-backed scheme an auditor must see exactly what the AI
         # detected and compared, not just the final number.
-        return _build_catalog_success_response(
+        return _build_catalog_success_response(transcript,
             catalog_data,
             verification,
             price_deviation_flag,
@@ -2773,3 +2772,4 @@ async def catalog_audio(
 @app.get("/health")
 def health_check():
     return {"status": "ok"}
+

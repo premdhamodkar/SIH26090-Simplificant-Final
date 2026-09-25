@@ -179,7 +179,7 @@ export const speechService: SpeechRecognitionHelper = {
 
     // 1. Native shell path: If we are inside the Expo shell, use the native bridge FIRST.
     // The native shell uses expo-audio to record reliably and bypasses WebView permission hell.
-    if (window.__simplificantNativeBridge?.requestVoiceRecording) {
+    if (window.ReactNativeWebView && window.__simplificantNativeBridge?.requestVoiceRecording) {
       const session: NativeVoiceSession = { onResult, onError, options }
       nativeVoiceSession = session
       const stopFn = () => {

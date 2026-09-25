@@ -38,3 +38,5 @@ apps/mobile/web-build/
 venv/
 __pycache__/
 *.py[cod]
+
+.expo/
